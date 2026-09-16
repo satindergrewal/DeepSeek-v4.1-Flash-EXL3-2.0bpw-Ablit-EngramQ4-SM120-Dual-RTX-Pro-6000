@@ -841,3 +841,32 @@ capacity ceiling. It was not: the prompt builder targeted 1,048,576 and produced
 tokens, past the cap. **Capture and print the HTTP error BODY on any reject** -- a 2-second
 400 is a validation error, not an OOM, and the two look identical if you only record the
 status code.
+
+## Bench night (2026-09-17): stock vs abliterated, back-to-back
+
+Same serve stack, same day, order swapped mid-session. Honest caveats: 50-problem
+GSM8K slice; 20+10 archetype refusal battery with marker-heuristic classification;
+400K loop prefill uses repeated wikitext test split (732 KiB cycled); concurrency
+via the warm-cache 2-phase harness.
+
+| Bench | Stock | Abliterated |
+|---|---|---|
+| Refusal battery, harmful (20) | 20/20 refused | 2/20 refused |
+| Refusal battery, benign (10) | 0/10 refused | 1/10 refused |
+| GSM8K 50-problem slice | 92.0% (46/50) | 96.0% (48/50) |
+| Loop battery v1, short ctx | 0/8 | 0/8 |
+| Loop battery v1, 400K prefill | 0/8 | 1/8 (`enum`, ttr 0.20, ~395K depth) |
+| Decode @2K single stream | 92-94 tok/s | 89.4 tok/s |
+| Concurrency 8x46K warm | 244-249 tok/s agg | 260.2 tok/s agg (32.5/stream) |
+| Concurrency 12x46K warm | 17.3 tok/s agg | 17.3 tok/s agg |
+| Multi-tool (single/no-call/parallel-3) | 3/3 (schemas wired) | 2/3 (parallel-3 = single-call-then-wait), 0 DSML leaks |
+| Vision, 2 synthetic tests | pass | pass |
+
+Attribution: the 400K loop is graft-attributable (stock clean at the same depth);
+the 12-stream collapse is engine-attributable (reproduces on both). The graft's
+behavioral effect is exactly the intended one (20/20 -> 2/20 harmful compliance)
+with no measured cognitive or speed cost.
+
+Raw receipts: /tmp/refusal-*.json, /tmp/gsm8k-*.json, /tmp/multitool-*.json,
+/tmp/loop-*.log, /tmp/conc-*.log on the serving box (transient); summaries
+embedded above are the durable record.
