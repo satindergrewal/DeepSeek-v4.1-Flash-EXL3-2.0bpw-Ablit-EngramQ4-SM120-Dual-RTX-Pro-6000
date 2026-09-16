@@ -870,3 +870,44 @@ with no measured cognitive or speed cost.
 Raw receipts: /tmp/refusal-*.json, /tmp/gsm8k-*.json, /tmp/multitool-*.json,
 /tmp/loop-*.log, /tmp/conc-*.log on the serving box (transient); summaries
 embedded above are the durable record.
+
+## 2026-09-17: concurrency-harness retraction + replacement protocol (full receipt)
+
+**Trigger**: quality-matrix work found the official API scoring 82% on GSM8K at
+max_tokens=1200 - and re-checking the concurrency numbers while wiring the new
+matrix exposed that the two-phase warm-cache harness was measuring prefill, not
+decode.
+
+**Defect 1 - phase-B re-prefill (invalidates the warm "decode" numbers).**
+coresident.py phase B re-sends phase-A prompts and assumes prefix-cache hits.
+Server instrumentation (CACHEDBG/SWDBG) shows only the most recently prefilled
+context stays matchable: on the 8x100K rung, phase-B stream 1 hit 109,248/109,248
+cached tokens and streams 2-8 hit 0. Wall time for the "decode" phase was 416s =
+8x109K tokens at ~2100 tok/s, i.e. a full re-prefill. The N=12 "collapse" number
+(17.3 tok/s) was 277.91s for 4800 completion tokens = 11x50K re-prefill at
+~1980 tok/s. These are prefill measurements mislabeled as decode.
+
+**Defect 2 - orphaned requests after client kill.** After a client is killed
+mid-ladder, its in-flight 218K-token prefill requests keep executing and
+re-admitting server-side (GPU 100% with zero clients; repeated admissions of the
+same prompt lengths across 20 minutes). While orphans churn, unrelated 2K-token
+requests take 47-115s. This contaminated the tail of bench night and any session
+where a client was killed during a long prefill. Serve restart clears it; vLLM
+logged no abort on client disconnect.
+
+**What survives**: single-stream decode, prefill TTFT, loop batteries (identical
+repeats hit the cache within the lag window - 8-11x warm-turn gains are real),
+refusal/GSM8K/multitool batteries (single-stream, cache-independent), vision.
+
+**Replacement protocol (cache-independent)**: fire N distinct contexts
+concurrently with streaming; aggregate decode throughput = total completion
+tokens / (last final-token - first first-token); per-stream rate and TTFT
+distribution reported alongside; prompts distinct per stream (what a real agent
+fleet experiences). Harness: tools/coresident2.py; rungs 8/12/16 x 46K, 8 x 100K,
+8 x 200K + 512K loop battery. Numbers land in this file and the README when the
+box is back (see docs/ROOT-CAUSES.md outage note).
+
+**GSM8K protocol note (applies to every arm)**: with a reasoning model,
+max_tokens caps reasoning + answer together. Official arm at mt=1200 scored
+82.0% (avg 293 reasoning tokens - truncation before answering); at mt=8000 it
+scores 98.0%. All quality-matrix arms use mt=8000.

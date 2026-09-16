@@ -268,3 +268,24 @@ Per Satinder order: switched the daily serve to the ABLITERATED weights.
 - Gates on the hybrid: smoke 391 / math 225+10 / cache PASS2 live / decode 89.4 t/s
   @2K warm / vision both tests / loop v1 0/8 (0%).
 - Stock pack swap-back: same command with PACK=/mnt/nvme0/bigmodels/dsv41-engram-q4.
+
+## 2026-09-17: prefix-reuse semantics (source-confirmed) + orphan churn + outage
+
+- `prefix_cache_retention_interval` IS segment-tail commit spacing (confirmed in
+  vllm/config/cache.py + single_type_kv_cache_manager.py: ">0 -> a tail once per
+  retention_interval-sized segment"; the deprecated env var is still honored).
+  The original RCA read was correct. What the fix does NOT guarantee is
+  cross-request reuse at long context: matchability of an older context's blocks
+  is not reliable on this build (see docs/BENCH.md defect 1). Do not build
+  measurements - or product claims - on assumed long-context prefix reuse.
+- Client disconnects do not reliably abort in-flight prefills on this build:
+  orphaned 218K-token requests re-admitted and re-prefilled for 20+ minutes at
+  100% GPU with zero clients attached. Killed a benchmark mid-run? Restart the
+  serve before trusting anything after it.
+- Outage 2026-09-17 ~11:30 NZST: during a ladder relaunch boot the box wedged
+  (ping alive, every listener RST, sshd banner stall - OOM-cascade class, second
+  wedge of the campaign; prior HF staging pushed ~600GB through page cache and
+  repeated cold Engram boots are the suspected accumulation). Serve relaunches
+  on this box now follow: check for orphan processes, docker rm -f, ONE boot,
+  verify health BEFORE load. NCCL_P2P_DISABLE=1 and
+  VLLM_PREFIX_CACHE_RETENTION_INTERVAL=64 are persisted in serve.env.

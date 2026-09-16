@@ -31,8 +31,8 @@ agents. Numbers below and in [docs/BENCH.md](docs/BENCH.md).
 | Loop battery v1, short context | 0/8 | 0/8 |
 | Loop battery v1, 400K-token prefill | 0/8 | **1/8** (`enum` prompt, ttr 0.20) |
 | Decode @2K, single stream | 92-94 tok/s | 89.4 tok/s |
-| Concurrency, 8x46K warm | 244-249 tok/s | 260.2 tok/s |
-| Concurrency, 12x46K | 17.3 tok/s (collapse) | 17.3 tok/s (same collapse) |
+| Concurrency, 8x46K warm | 244-249 tok/s | 260.2 tok/s (superseded - see caveat) |
+| Concurrency, 12x46K | ~~17.3 tok/s (collapse)~~ | **measurement artifact - retracted, see below** |
 | Multi-tool (single / no-call / parallel-3) | 3/3 with schemas wired | 2/3 - parallel-3 answered single-call-then-wait; **0 DSML leaks** |
 | Vision (2 synthetic image tests) | pass | pass |
 
@@ -40,13 +40,26 @@ What this says: the graft does exactly what an abliteration should - near-total
 refusal removal on harmful archetypes (20/20 -> 2/20) - at the cost of one benign
 false-positive (0 -> 1) and one repetition-attractor appearance at 400K depth
 (0/8 -> 1/8). No cognitive cost measured: GSM8K 96% >= 92% stock (noise range),
-concurrency equal-or-better, decode within noise. The 12-16 stream collapse
-reproduces on BOTH weight sets: engine defect, not the graft.
+decode within noise.
 
 Measurement caveats, stated plainly: 50-problem GSM8K slice (not the full 1319);
 20-prompt refusal battery of archetype phrasings (not the Keys refusal32 set);
 refusal classified by marker heuristic on the visible reply; loop-prefill uses a
 repeated wikitext test split (732 KiB cycled to 400K), not unique prose.
+
+**Retracted / superseded rows (2026-09-17), disclosed in full:** the "12x46K
+collapse to 17.3 tok/s" and the warm-cache concurrency numbers were produced by a
+two-phase harness that depended on cross-request prefix-cache reuse. Server logs
+showed that reuse is unreliable on this build at long context (only the most
+recently prefilled context stays matchable; a phase-B "warm decode" silently
+re-prefilled 11 of 12 contexts, and the 17.3 tok/s wall time was exactly 11x50K
+tokens at the box's prefill rate - a prefill measurement, not a decode one). A
+separate defect (orphaned 218K-token requests kept re-prefilling after client
+disconnection, stalling unrelated 2K requests for 47-115s) contaminated sessions
+after any killed client. Both numbers above are therefore invalid as decode
+numbers. The replacement protocol measures co-resident decode directly
+(streaming, first-token to last-token window, no prefix-cache dependency);
+corrected numbers are in the quality/throughput section and docs/BENCH.md.
 
 Still not tested: full GSM8K, MMLU/HumanEval, 1M-token recall, real-photo vision,
 multi-turn agentic soak, any safety red-team.
@@ -129,9 +142,13 @@ gated on everything in the testing section above, not the full matrix.
 | Boot to ready | 12-15 min cold | boot log |
 | Checkpoint | 46 abliterated-weight shards + 6 MXINT-4 Engram part-shards (the two big Engram shards are split for HF's 50 GB file cap; `model.safetensors.index.json` maps tensors, loaders need no special handling) | pack receipt | pack receipt |
 
-Open defect, documented: 12-16 concurrent agents at 46K collapse (~20 tok/s
-aggregate; repeated 50K prefill bursts, no preemption logs). 8 streams and under
-are proven-safe territory. Analysis in docs/ROOT-CAUSES.md.
+Former "open defect" (12-16 concurrent agents at 46K collapsing to ~20 tok/s):
+retracted 2026-09-17 as a measurement artifact - the harness's warm phase
+re-prefilled instead of decoding (see the retraction note above). The remaining
+real finding from that investigation: clients that disconnect mid-prefill leave
+requests running server-side, and those orphans degrade later requests until the
+serve restarts. If you kill a client during a long prefill, watch for this; a
+serve restart clears it.
 
 ## Repo map
 
