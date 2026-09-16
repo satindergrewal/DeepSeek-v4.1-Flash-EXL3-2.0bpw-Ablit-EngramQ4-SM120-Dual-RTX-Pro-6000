@@ -127,7 +127,7 @@ gated on everything in the testing section above, not the full matrix.
 | Tool calling | OpenAI format roundtrip verified (streaming + not) | live serve |
 | Context | 1,048,576 max | serving |
 | Boot to ready | 12-15 min cold | boot log |
-| Checkpoint | 48 shards; 46 abliterated-weight + 2 MXINT-4 Engram | pack receipt |
+| Checkpoint | 46 abliterated-weight shards + 6 MXINT-4 Engram part-shards (the two big Engram shards are split for HF's 50 GB file cap; `model.safetensors.index.json` maps tensors, loaders need no special handling) | pack receipt | pack receipt |
 
 Open defect, documented: 12-16 concurrent agents at 46K collapse (~20 tok/s
 aggregate; repeated 50K prefill bursts, no preemption logs). 8 streams and under
