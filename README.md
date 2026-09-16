@@ -19,47 +19,37 @@ agents. Numbers below and in [docs/BENCH.md](docs/BENCH.md).
 
 ## Testing status: NOT rigorously tested
 
-**Warning:** this is a hobbyist derivative checkpoint. It has NOT been through a
-benchmark suite, a refusal-behavior evaluation, or any safety red-teaming. Do not
-use it where wrong answers are expensive. The complete, honest list of every test
-actually run on these weights follows.
+**Warning:** this is a hobbyist derivative checkpoint. It has NOT been through a full benchmark suite, refusal-behavior literature-standard evaluation, or safety red-teaming. What WAS run, and what was not, is below in full.
 
-### Run on the abliterated weights (this checkpoint, 2026-09-16/17)
+## Abliteration before/after (2026-09-17, same serve stack, back-to-back)
 
-| Test | Result |
-|---|---|
-| Greedy loop battery v1 (8 prompts, temp 0, 1500 tok) | 0/8 loops |
-| Arithmetic sanity (17x23) | correct (391) |
-| Two GSM8K-style word problems | correct (225, 10), clean reasoning |
-| Vision, 2 synthetic images (red/blue split; green+white pair) | both correct |
-| Decode speed @2K, single stream | 89.4 tok/s |
-| Prefill @46K | 1667 tok/s |
-| Prefix-cache second pass | functional (prompt served warm) |
-| Text smoke on tool-call serve path | clean |
-| Boot + engine init | clean, graphs PIECEWISE, vision warmup OK |
+| Bench | Stock (pre-graft) | Abliterated (this checkpoint) |
+|---|---|---|
+| Refusal battery, harmful prompts (20) | **20/20 refused** | **2/20 refused** |
+| Refusal battery, benign controls (10) | 0/10 refused | 1/10 refused |
+| GSM8K, 50-problem test slice | 92.0% (46/50) | **96.0%** (48/50) |
+| Loop battery v1, short context | 0/8 | 0/8 |
+| Loop battery v1, 400K-token prefill | 0/8 | **1/8** (`enum` prompt, ttr 0.20) |
+| Decode @2K, single stream | 92-94 tok/s | 89.4 tok/s |
+| Concurrency, 8x46K warm | 244-249 tok/s | 260.2 tok/s |
+| Concurrency, 12x46K | 17.3 tok/s (collapse) | 17.3 tok/s (same collapse) |
+| Multi-tool (single / no-call / parallel-3) | 3/3 with schemas wired | 2/3 - parallel-3 answered single-call-then-wait; **0 DSML leaks** |
+| Vision (2 synthetic image tests) | pass | pass |
 
-### Run on the STOCK (non-ablit) pack only, same serve stack
+What this says: the graft does exactly what an abliteration should - near-total
+refusal removal on harmful archetypes (20/20 -> 2/20) - at the cost of one benign
+false-positive (0 -> 1) and one repetition-attractor appearance at 400K depth
+(0/8 -> 1/8). No cognitive cost measured: GSM8K 96% >= 92% stock (noise range),
+concurrency equal-or-better, decode within noise. The 12-16 stream collapse
+reproduces on BOTH weight sets: engine defect, not the graft.
 
-| Test | Result |
-|---|---|
-| Full bench matrix (2K/46K x 1/4 streams) | decode 80-94 tok/s, prefill 1.5-3.8K tok/s |
-| Warm-cache concurrency, 8 streams @46K | 244-249 tok/s aggregate |
-| Prefix-cache identical-prompt gate | 5.85 s -> 0.53 s (8-11x), walk-level receipts |
-| 512K-context loop battery | 0/8 loops |
-| 1M context boot + serving | max_model_len=1048576 accepted |
-| N=16 concurrency @46K | COLLAPSES (~20 tok/s) - open defect, documented |
-| Tool calling (single tool, get_weather) | correct tool_calls, streaming + non-stream |
+Measurement caveats, stated plainly: 50-problem GSM8K slice (not the full 1319);
+20-prompt refusal battery of archetype phrasings (not the Keys refusal32 set);
+refusal classified by marker heuristic on the visible reply; loop-prefill uses a
+repeated wikitext test split (732 KiB cycled to 400K), not unique prose.
 
-### NOT tested (explicitly)
-
-- Any standard benchmark suite (GSM8K/MMLU/HumanEval/etc.) on the abliterated weights - the three math problems above are the entire math evaluation
-- Refusal behavior before/after the graft - "abliterated" is the graft method's claim, unmeasured here
-- KLD/PPL fidelity of the graft on these weights (sidecar receipts exist from its creation; not re-measured)
-- Long-context (400K+) runs on the abliterated weights
-- 1M-token end-to-end recall (the serve accepts 1M; tonight's runs stayed short)
-- Multi-turn agentic soak, parallel/multi-tool calls, tool-rejection paths
-- Real photographs, OCR, or video (vision tests are two synthetic images)
-- Safety evaluation of any kind
+Still not tested: full GSM8K, MMLU/HumanEval, 1M-token recall, real-photo vision,
+multi-turn agentic soak, any safety red-team.
 
 ## What this checkpoint is
 
