@@ -17,6 +17,50 @@ reasoning), loop battery 0/8 at greedy temp-0, both vision tests correct
 decode 89-94 tok/s single stream at 2K and 249 tok/s aggregate at 8x46K warm
 agents. Numbers below and in [docs/BENCH.md](docs/BENCH.md).
 
+## Testing status: NOT rigorously tested
+
+**Warning:** this is a hobbyist derivative checkpoint. It has NOT been through a
+benchmark suite, a refusal-behavior evaluation, or any safety red-teaming. Do not
+use it where wrong answers are expensive. The complete, honest list of every test
+actually run on these weights follows.
+
+### Run on the abliterated weights (this checkpoint, 2026-09-16/17)
+
+| Test | Result |
+|---|---|
+| Greedy loop battery v1 (8 prompts, temp 0, 1500 tok) | 0/8 loops |
+| Arithmetic sanity (17x23) | correct (391) |
+| Two GSM8K-style word problems | correct (225, 10), clean reasoning |
+| Vision, 2 synthetic images (red/blue split; green+white pair) | both correct |
+| Decode speed @2K, single stream | 89.4 tok/s |
+| Prefill @46K | 1667 tok/s |
+| Prefix-cache second pass | functional (prompt served warm) |
+| Text smoke on tool-call serve path | clean |
+| Boot + engine init | clean, graphs PIECEWISE, vision warmup OK |
+
+### Run on the STOCK (non-ablit) pack only, same serve stack
+
+| Test | Result |
+|---|---|
+| Full bench matrix (2K/46K x 1/4 streams) | decode 80-94 tok/s, prefill 1.5-3.8K tok/s |
+| Warm-cache concurrency, 8 streams @46K | 244-249 tok/s aggregate |
+| Prefix-cache identical-prompt gate | 5.85 s -> 0.53 s (8-11x), walk-level receipts |
+| 512K-context loop battery | 0/8 loops |
+| 1M context boot + serving | max_model_len=1048576 accepted |
+| N=16 concurrency @46K | COLLAPSES (~20 tok/s) - open defect, documented |
+| Tool calling (single tool, get_weather) | correct tool_calls, streaming + non-stream |
+
+### NOT tested (explicitly)
+
+- Any standard benchmark suite (GSM8K/MMLU/HumanEval/etc.) on the abliterated weights - the three math problems above are the entire math evaluation
+- Refusal behavior before/after the graft - "abliterated" is the graft method's claim, unmeasured here
+- KLD/PPL fidelity of the graft on these weights (sidecar receipts exist from its creation; not re-measured)
+- Long-context (400K+) runs on the abliterated weights
+- 1M-token end-to-end recall (the serve accepts 1M; tonight's runs stayed short)
+- Multi-turn agentic soak, parallel/multi-tool calls, tool-rejection paths
+- Real photographs, OCR, or video (vision tests are two synthetic images)
+- Safety evaluation of any kind
+
 ## What this checkpoint is
 
 | | |
@@ -76,15 +120,17 @@ on every boot of every script.
 pinned rung - the load-time peak (pin + weight streaming) wedges the host even at
 81 GiB pinned with 32 GiB modeled headroom. Full post-mortem in docs/ROOT-CAUSES.md.
 
-## Results (2026-09-16/17, this exact weight set)
+## Results (2026-09-16/17; stock-pack rows marked)
 
-Policy: if a number is not in a dated table, treat it as unverified.
+Policy: if a number is not in a dated table, treat it as unverified. The
+concurrency row was measured on the stock pack - the abliterated weights were
+gated on everything in the testing section above, not the full matrix.
 
 | Metric | Value | Verified |
 |---|---|---|
 | Decode, single stream, 2K ctx | 92-94 tok/s stock, 89.4 tok/s abliterated | bench, non-stream |
 | Prefill, 46K ctx | 1622-1840 tok/s | bench TTFT |
-| Concurrency aggregate decode, 8 streams @46K warm | 244-249 tok/s (31/stream) | warm-cache 2-phase |
+| Concurrency aggregate decode, 8 streams @46K warm | 244-249 tok/s (31/stream) | warm-cache 2-phase (stock pack) |
 | Warm-turn prefill, 12.7K prefix | 5.85 s -> 0.53-0.67 s (8-11x) | identical-prompt gate |
 | Vision | red/blue split + two-image identification correct | image tests |
 | Loop battery v1 (greedy, temp 0, 1500 tokens) | 0/8 loops | loop_rate.py |
