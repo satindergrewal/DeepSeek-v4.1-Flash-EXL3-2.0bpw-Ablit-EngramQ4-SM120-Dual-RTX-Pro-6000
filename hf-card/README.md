@@ -56,7 +56,7 @@ Serving recipe, patches, and every root cause:
 |---|---|
 | Decode, single stream, 2K ctx | 89.4 tok/s (92-94 stock, non-ablit) |
 | Prefill, 46K ctx | 1622-1840 tok/s |
-| Aggregate decode, 8 streams @46K warm | 244-249 tok/s (measured on the stock pack) |
+| Aggregate decode, 8 streams @46K warm | 244-249 tok/s (stock pack; superseded by decode-window protocol, see quality section) |
 | Warm-turn prefill, 12.7K prefix | 0.53-0.67 s (8-11x vs cold) |
 | Context | 1,048,576 |
 | Loop battery v1 (greedy, temp 0) | 0/8 loops |
@@ -94,8 +94,8 @@ need the extra 17 GiB back.
 | Loop battery v1, short context | 0/8 | 0/8 |
 | Loop battery v1, 400K-token prefill | 0/8 | **1/8** (`enum` prompt, ttr 0.20) |
 | Decode @2K, single stream | 92-94 tok/s | 89.4 tok/s |
-| Concurrency, 8x46K warm | 244-249 tok/s | 260.2 tok/s |
-| Concurrency, 12x46K | 17.3 tok/s (collapse) | 17.3 tok/s (same collapse) |
+| Concurrency, 8x46K warm | 244-249 tok/s | 260.2 tok/s (superseded - see caveat) |
+| Concurrency, 12x46K | ~~17.3 tok/s (collapse)~~ | **measurement artifact - retracted, see below** |
 | Multi-tool (single / no-call / parallel-3) | 3/3 with schemas wired | 2/3 - parallel-3 answered single-call-then-wait; **0 DSML leaks** |
 | Vision (2 synthetic image tests) | pass | pass |
 
@@ -103,8 +103,16 @@ What this says: the graft does exactly what an abliteration should - near-total
 refusal removal on harmful archetypes (20/20 -> 2/20) - at the cost of one benign
 false-positive (0 -> 1) and one repetition-attractor appearance at 400K depth
 (0/8 -> 1/8). No cognitive cost measured: GSM8K 96% >= 92% stock (noise range),
-concurrency equal-or-better, decode within noise. The 12-16 stream collapse
-reproduces on BOTH weight sets: engine defect, not the graft.
+decode within noise.
+
+**Retracted rows (2026-09-17), disclosed in full:** the "12x46K collapse to
+17.3 tok/s" and the warm-cache concurrency numbers came from a two-phase harness
+that assumed long-context prefix-cache reuse. Server logs show that reuse is
+unreliable on this build (only the most recently prefilled context stays
+matchable), so those "decode" phases silently re-prefilled - the 17.3 tok/s wall
+time was 11x50K tokens at prefill rate, a prefill measurement mislabeled as
+decode. Replacement protocol (streaming decode-window, cache-independent) is in
+the repo; corrected numbers in the quality section below.
 
 Measurement caveats, stated plainly: 50-problem GSM8K slice (not the full 1319);
 20-prompt refusal battery of archetype phrasings (not the Keys refusal32 set);
