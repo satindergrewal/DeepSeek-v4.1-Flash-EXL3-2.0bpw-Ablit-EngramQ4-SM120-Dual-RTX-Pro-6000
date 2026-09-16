@@ -21,7 +21,7 @@ agents. Numbers below and in [docs/BENCH.md](docs/BENCH.md).
 
 | | |
 |---|---|
-| Base | deepseek-ai/DeepSeek-V4.1-Flash, EXL3 2.0bpw weights (stock tensor-for-tensor except where noted) |
+| Base quant | EXL3 2.0bpw by [diffbot](https://huggingface.co/diffbot/DeepSeek-V4.1-Flash-EXL3-2.0bpw-2x-RTX-PRO-6000) - this checkpoint is a derivative of that quant (graft + Engram recompression on top) |
 | Abliteration | 52 grafted `attn.wo_b` tensors, layers 10-35 (graft method; experts, Engram, MTP, layers 0-9 and 36-39 remain stock) |
 | Engram tables | recompressed fp8 -> MXINT-4 with e4m3 block scales: 189.1 GiB -> 97.6 GiB. Served from NVMe with dedup + page-cache warm, or pinned on boxes that can afford it |
 | Hybrid builder | `tools/build_ablit_hybrid.py` verifies the graft against stock, then hardlinks ablit weight shards + MXINT-4 Engram shards into one pack |
@@ -30,9 +30,11 @@ agents. Numbers below and in [docs/BENCH.md](docs/BENCH.md).
 ## Quick start
 
 ```bash
-cp serve/serve.env.example serve/serve.env   # set API_KEY
 ./start.sh                                   # boots on :8000, waits for ready
 ```
+
+Serves WITHOUT an API key by default. To require a Bearer token, set `API_KEY`
+in the environment or `serve/serve.env` (see `serve/serve.env.example`).
 
 Boot is 12-15 min from cold page cache (48 shards + JIT + graph capture).
 After every boot, fire one small request before loading real work: the first
@@ -111,3 +113,19 @@ Credits: FlashInfer patches build on the upstream sparse_mla_sm120 kernels
 (JIT topk-1152 extension); vLLM patches are annotated edits of
 `0.1.dev20904+g179dd0fa9`. The abliteration graft was produced by the wo_b
 sidecar method - run `tools/build_ablit_hybrid.py` to verify any pack against it.
+
+## Sources and credits
+
+This checkpoint exists on top of other people's work, in order:
+
+| Source | What we took |
+|---|---|
+| [deepseek-ai/DeepSeek-V4.1-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash) | the base model, architecture, tokenizer, DSpark draft |
+| [diffbot/DeepSeek-V4.1-Flash-EXL3-2.0bpw-2x-RTX-PRO-6000](https://huggingface.co/diffbot/DeepSeek-V4.1-Flash-EXL3-2.0bpw-2x-RTX-PRO-6000) | **the EXL3 2.0bpw quantization itself** - all 46 weight shards are diffbot's; we grafted the ablit tensors and recompressed the Engram tables on top. Without this quant there is no release |
+| [MiaAI-Lab/DeepSeek-v4.1-Flash-EXL3-2x-DGX-Sparks](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-EXL3-2x-DGX-Sparks) | the 2.9bpw DGX Sparks quant, used as the reference for KLD cross-checks (kld-2.0-vs-2.9.json in the pack), and the release format |
+| vLLM `0.1.dev20904+g179dd0fa9` + the `vllm_exl3` plugin + ExLlamaV3 kernels | the runtime this whole stack serves through |
+| [FlashInfer](https://github.com/flashinfer-ai/flashinfer) sm_120 sparse-MLA kernels | the prefill/decode paths our topk-1152 patches extend |
+| DeepSeek `deepseek_v41` tokenizer and tool parser | chat template, reasoning split, DSML tool-call grammar |
+
+License: inherits the DeepSeek V4.1 model license. Quantizations and derivative
+checkpoints - check the source repos' terms before redistribution.

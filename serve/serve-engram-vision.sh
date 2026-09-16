@@ -7,10 +7,10 @@
 # Serve DeepSeek-V4.1-Flash (EXL3 2.0 bpw routed experts) with vLLM TP2 on 2x RTX PRO 6000 Blackwell (sm_120).
 # Engram tables live in pinned host RAM (~95 GiB per rank, read over UVA, CUDA-graph capturable); ENGRAM_DISK=1
 # reads them from NVMe instead (needs EAGER=1). Text only. Foreground; Ctrl-C removes the container.
-# Requires API_KEY in the environment (clients send it as the Bearer token).
+# API_KEY is OPTIONAL. Set it to require a Bearer token; leave unset to serve open.
 set -u
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-: "${API_KEY:?set API_KEY}"
+API_KEY="${API_KEY:-}"
 # Downloaded from Hugging Face, this script lives in <pack>/recipe/serve, so the pack is the recipe's parent directory.
 if [[ -z ${PACK:-} && -f $REPO/../config.json ]]; then PACK=$(cd "$REPO/.." && pwd); fi
 MODELS_DIR=${MODELS_DIR:-$HOME/models}
@@ -81,7 +81,7 @@ docker run --rm --name "$NAME" --gpus all --network host --ipc host --shm-size 3
   ${MOUNTS_EXTRA:-} \
   $PASS_ENV \
   --entrypoint vllm "$IMAGE" serve "$PACK" \
-  --tensor-parallel-size 2 --host 0.0.0.0 --port "$PORT" --api-key "$API_KEY" \
+  --tensor-parallel-size 2 --host 0.0.0.0 --port "$PORT" ${API_KEY:+--api-key "$API_KEY"} \
   --max-model-len "$MAX_MODEL_LEN" --kv-cache-dtype fp8 --kv-cache-memory "$KV_MEM" \
   --gpu-memory-utilization "$UTIL" --max-num-seqs "$MAX_NUM_SEQS" --max-num-batched-tokens "$MAX_BATCHED" \
   ${CUDAGRAPH_SIZES:+--cudagraph-capture-sizes $CUDAGRAPH_SIZES} \
