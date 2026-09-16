@@ -129,6 +129,7 @@ actually run on these weights follows.
 - Base model: [deepseek-ai/DeepSeek-V4.1-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash)
 - **EXL3 2.0bpw quantization: [diffbot/DeepSeek-V4.1-Flash-EXL3-2.0bpw-2x-RTX-PRO-6000](https://huggingface.co/diffbot/DeepSeek-V4.1-Flash-EXL3-2.0bpw-2x-RTX-PRO-6000)** - all weight shards are diffbot's quant; this repo adds the ablit graft and the MXINT-4 Engram recompression
 - 2.9bpw reference quant used for KLD cross-checks: [MiaAI-Lab/DeepSeek-v4.1-Flash-EXL3-2x-DGX-Sparks](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-EXL3-2x-DGX-Sparks)
+- Abliteration method: **drowzeys' Keys anchored-tensors wo_b graft** (rank-1, layers 10-35, lambda=3.5) - sidecar from [drowzeys' abliteration packs](https://huggingface.co/drowzeys), applied to the 2.0bpw quant
 - Runtime: vLLM + vllm_exl3 plugin + ExLlamaV3 kernels; FlashInfer sm_120 kernels under the vision patches
 
 License inherits the DeepSeek V4.1 model license.

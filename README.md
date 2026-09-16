@@ -169,6 +169,7 @@ This checkpoint exists on top of other people's work, in order:
 | [deepseek-ai/DeepSeek-V4.1-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash) | the base model, architecture, tokenizer, DSpark draft |
 | [diffbot/DeepSeek-V4.1-Flash-EXL3-2.0bpw-2x-RTX-PRO-6000](https://huggingface.co/diffbot/DeepSeek-V4.1-Flash-EXL3-2.0bpw-2x-RTX-PRO-6000) | **the EXL3 2.0bpw quantization itself** - all 46 weight shards are diffbot's; we grafted the ablit tensors and recompressed the Engram tables on top. Without this quant there is no release |
 | [MiaAI-Lab/DeepSeek-v4.1-Flash-EXL3-2x-DGX-Sparks](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-EXL3-2x-DGX-Sparks) | the 2.9bpw DGX Sparks quant, used as the reference for KLD cross-checks (kld-2.0-vs-2.9.json in the pack), and the release format |
+| Abliteration | **drowzeys' Keys anchored-tensors method** - rank-1 `attn.wo_b` projection (lambda=3.5, layers 10-35), sidecar recaptured on TR3 and applied here to the 2.0bpw quant. See [drowzeys' packs](https://huggingface.co/drowzeys) for the method family |
 | vLLM `0.1.dev20904+g179dd0fa9` + the `vllm_exl3` plugin + ExLlamaV3 kernels | the runtime this whole stack serves through |
 | [FlashInfer](https://github.com/flashinfer-ai/flashinfer) sm_120 sparse-MLA kernels | the prefill/decode paths our topk-1152 patches extend |
 | DeepSeek `deepseek_v41` tokenizer and tool parser | chat template, reasoning split, DSML tool-call grammar |
