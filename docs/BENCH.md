@@ -911,3 +911,52 @@ box is back (see docs/ROOT-CAUSES.md outage note).
 max_tokens caps reasoning + answer together. Official arm at mt=1200 scored
 82.0% (avg 293 reasoning tokens - truncation before answering); at mt=8000 it
 scores 98.0%. All quality-matrix arms use mt=8000.
+
+## 2026-09-18 addendum: decode-window concurrency ladder + abliterated divergence
+
+Serve relaunched 00:20 NZ with the verified healthy-arm recipe (boot to
+startup-complete: 5m20s warm page cache; single-stream decode re-verified
+~93 tok/s). Engine flags byte-identical to the 16.5h healthy boot of 09-16
+(release snapshot 37e8ab3); only drift = API-key-required + inert
+DOCKER_MEM hook.
+
+### Decode-window concurrency ladder (coresident2, streaming, thinking-off)
+
+Fired N distinct ~CTX-token documents simultaneously; aggregate = completion
+tokens / (last final-token - first first-token). 400 decode tokens/stream.
+
+| Rung | Aggregate tok/s | Per-stream | TTFT min | TTFT p50 | TTFT max |
+|---|---:|---:|---:|---:|---:|
+| 8 x 46K | 16.6 | 2.1 | 26.8s | 130.5s | 209.8s |
+| 12 x 46K | 15.8 | 1.3 | 27.9s | 185.9s | 324.0s |
+| 16 x 46K | 15.5 | 1.0 | 28.0s | 244.5s | 431.9s |
+| 8 x 100K | 7.7 | 1.0 | 58.3s | 290.7s | 464.3s |
+| 8 x 200K | 3.9 | 0.5 | 117.6s | 587.9s | 940.1s |
+
+Reading: aggregate is prefill-queuing dominated - N deep prefills serialize
+through the ~5,000 tok/s prefill budget while decode trickles between chunks
+(engine-side: KV pool peaks at 11.9%, NVMe idle during decode windows). The
+earlier ">8 agents collapse" observation is this effect, not KV exhaustion
+and not a decode-capacity cliff. Fix class = decode-floor fair mixing of
+prefill and decode (as shipped in GLM kit 1.5.0); not ported here yet.
+
+Engine log during rungs: Running caps at MAX_NUM_SEQS=8; raise the knob for
+>8 co-resident agents.
+
+### Abliterated arm divergence (kld2_local, on-policy replay)
+
+n=3,957 trajectory positions (one junction mismatch skipped), greedy,
+thinking disabled on the official capture side:
+
+| Metric | Value |
+|---|---|
+| KL vs official | **0.06395 nats/tok** |
+| Trajectory PPL | **1.0660** |
+| Top-1 agreement | **0.985** |
+
+The abliterated checkpoint is the closest-to-official arm measured, ahead of
+the 2.9bpw reference (KL 0.1238 / PPL 1.132 / top1 0.984).
+
+### Loop battery, 512K depth (abliterated arm)
+
+1/8 looped (12%), 8 prompts scored.

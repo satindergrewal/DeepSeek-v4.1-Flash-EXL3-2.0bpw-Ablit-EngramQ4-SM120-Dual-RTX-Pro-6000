@@ -31,6 +31,7 @@ the comparison section with charts.
 | GSM8K, 50-problem test slice | 92.0% (46/50) | **96.0%** (48/50) |
 | Loop battery v1, short context | 0/8 | 0/8 |
 | Loop battery v1, 400K-token prefill | 0/8 | **1/8** (`enum` prompt, ttr 0.20) |
+| Loop battery, 512K-token prefill (2026-09-18) | - | **1/8** (12%) |
 | Decode @2K, single stream | 92-94 tok/s | 89.4 tok/s |
 | Concurrency, 8x46K warm | 244-249 tok/s | 260.2 tok/s (superseded - see caveat) |
 | Concurrency, 12x46K | ~~17.3 tok/s (collapse)~~ | **measurement artifact - retracted, see below** |
@@ -84,7 +85,7 @@ multi-turn agentic soak, any safety red-team.
 Serves WITHOUT an API key by default. To require a Bearer token, set `API_KEY`
 in the environment or `serve/serve.env` (see `serve/serve.env.example`).
 
-Boot is 12-15 min from cold page cache (48 shards + JIT + graph capture).
+Boot is 12-15 min from cold page cache (48 shards + JIT + graph capture); 5-6 min with a warm page cache (measured 2026-09-18).
 After every boot, fire one small request before loading real work: the first
 heavy batched request runs at a tenth of speed once (JIT/Engram path warmup).
 
@@ -134,7 +135,7 @@ gated on everything in the testing section above, not the full matrix.
 |---|---|---|
 | Decode, single stream, 2K ctx | 92-94 tok/s stock, 89.4 tok/s abliterated | bench, non-stream |
 | Prefill, 46K ctx | 1622-1840 tok/s | bench TTFT |
-| Concurrency aggregate decode, 8 streams @46K warm | 244-249 tok/s (31/stream) | warm-cache 2-phase (stock pack) |
+| Concurrency, decode-window (co-resident streaming, 2026-09-18) | 8x46K: 16.6 agg (2.1/stream) - 12x46K: 15.8 - 16x46K: 15.5 - 8x100K: 7.7 - 8x200K: 3.9 tok/s; TTFT p50 130-588s | decode-window bench; prefill-queuing dominated - see docs/BENCH.md |
 | Warm-turn prefill, 12.7K prefix | 5.85 s -> 0.53-0.67 s (8-11x) | identical-prompt gate |
 | Vision | red/blue split + two-image identification correct | image tests |
 | Loop battery v1 (greedy, temp 0, 1500 tokens) | 0/8 loops | loop_rate.py |
@@ -210,12 +211,16 @@ disabled for the trajectory capture.
 |---|---|---|---|---|---|---|---|
 | Official DeepSeek API | 98.0 | 20/20 | 1/10 | 3/3 | reference | reference | reference |
 | Mia EXL3 2.9bpw | 96.0 | 20/20 | 1/10 | 3/3 | 0.1238 | 1.132 | 0.984 |
-| **This 2.0bpw (abliterated)** | 96.0 | 2/20 | 1/10 | 2/3 | - | - | - |
+| **This 2.0bpw (abliterated)** | 96.0 | 2/20 | 1/10 | 2/3 | **0.0640** | **1.066** | **0.985** |
 | This 2.0bpw (stock, earlier session) | 92.0 | 20/20 | 0/10 | - | 0.4389 | 3.275 | 0.771 |
 
 The stock 2.0bpw KL/PPL row is from an earlier session (replay harness,
 165K tokens); it is the quantization-only reference point. The abliterated
-row is measured on the exact shipped weights.
+row is measured on the exact shipped weights - divergence re-measured
+2026-09-18 on the relaunched serve (n=3,957 trajectory positions, one
+junction skipped): **KL 0.0640 nats/tok, PPL 1.066, top-1 agreement 0.985 -
+the abliterated 2.0bpw checkpoint is the closest-to-official arm measured,
+ahead of the 2.9bpw reference**.
 
 ![gsm8k](charts/gsm8k.png)
 
