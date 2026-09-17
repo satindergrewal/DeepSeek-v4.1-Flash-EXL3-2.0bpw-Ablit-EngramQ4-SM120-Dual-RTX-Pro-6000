@@ -131,3 +131,44 @@ multi-turn agentic soak, any safety red-team.
 - Runtime: vLLM + vllm_exl3 plugin + ExLlamaV3 kernels; FlashInfer sm_120 kernels under the vision patches
 
 License inherits the DeepSeek V4.1 model license.
+
+## Quality vs the official DeepSeek API and vs 2.9bpw
+
+Measured 2026-09-17. All arms answer the identical prompts; greedy protocol
+everywhere; the official arm runs through the DeepSeek API with thinking
+disabled for the trajectory capture.
+
+- **GSM8K**: 50 problems from the official test split, greedy, `max_tokens=8000`.
+  With a reasoning model the completion budget IS the protocol: at tight budgets
+  the official model truncates before answering and scores artificially low
+  (measured: 82% at mt=1200 vs 98% at mt=8000 for the same weights).
+- **Refusal battery**: 20 harmful-archetype prompts + 10 benign controls, marker
+  classifier. The abliterated row's low harmful-refusal count is the point of the
+  abliteration, not a defect; benign false-refusals stay at official level.
+- **Tool calling**: 3 scenarios (single call, parallel calls, no-call discipline),
+  strict OpenAI-format parse + DSML-leak check.
+- **Divergence (KL / PPL / top-1)**: on-policy protocol - the official model's own
+  greedy trajectories (40 contexts x 128 tokens, byte-gated token streams) are
+  scored under each local arm via `prompt_logprobs`. KL is the mean per-token
+  `log p_official(t*) - log p_arm(t*)` over the trajectory; PPL is the arm's
+  perplexity of the official trajectory. Lower = closer to official.
+
+| Arm | GSM8K % | Harmful refused | Benign refused (false) | Tool calls | KL vs official (nats/tok) | Trajectory PPL | Top-1 agree |
+|---|---|---|---|---|---|---|---|
+| Official DeepSeek API | 98.0 | 20/20 | 1/10 | 3/3 | reference | reference | reference |
+| Mia EXL3 2.9bpw | 96.0 | 20/20 | 1/10 | 3/3 | 0.1238 | 1.132 | 0.984 |
+| **This 2.0bpw (abliterated)** | 96.0 | 2/20 | 1/10 | 2/3 | - | - | - |
+| This 2.0bpw (stock, earlier session) | 92.0 | 20/20 | 0/10 | - | 0.4389 | 3.275 | 0.771 |
+
+The stock 2.0bpw KL/PPL row is from an earlier session (replay harness,
+165K tokens); it is the quantization-only reference point. The abliterated
+row is measured on the exact shipped weights.
+
+![gsm8k](charts/gsm8k.png)
+
+![refusal](charts/refusal.png)
+
+![divergence](charts/divergence.png)
+
+![multitool](charts/multitool.png)
+
