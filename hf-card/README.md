@@ -16,73 +16,34 @@ tags:
 - sm120
 - 2xp6000
 ---
+# DeepSeek v4.1 Flash EXL3 2.0bpw + Engram Q4, Abliterated - SM120, Dual RTX Pro 6000
 
-# DeepSeek v4.1 Flash EXL3 2.0bpw + Engram Q4, Abliterated (SM120, 2x RTX PRO 6000)
+Abliterated DeepSeek v4.1 Flash on 2x RTX PRO 6000 (SM120): **1M context + vision +
+DSpark speculative decoding + prefix caching that actually works, simultaneously.**
 
-Abliterated DeepSeek v4.1 Flash at EXL3 2.0bpw with the Engram tables recompressed
-fp8 -> MXINT-4 (189.1 GiB -> 97.6 GiB). Builds and measured on 2x RTX PRO 6000
-Blackwell (SM120, TP2): **1,048,576 context + vision + DSpark speculative decoding
-+ working prefix caching.**
+Two defects had to be fixed to get here, both documented below with receipts:
+prefix caching is dead-on-arrival in this vLLM line under DSpark (a retention-mask
+default silently discards draft-KV hash commits - one env var fixes it), and
+P2P-enabled NCCL init deadlocks on asymmetric Blackwell pairs (disable it).
 
-Serving recipe, patches, and every root cause:
-[github.com/satindergrewal/DeepSeek-v4.1-Flash-EXL3-2.0bpw-Ablit-EngramQ4-SM120-Dual-RTX-Pro-6000](https://github.com/satindergrewal/DeepSeek-v4.1-Flash-EXL3-2.0bpw-Ablit-EngramQ4-SM120-Dual-RTX-Pro-6000)
+Checkpoint on Hugging Face:
+[satgeze/DeepSeek-v4.1-Flash-EXL3-2.0bpw-Ablit-EngramQ4-SM120-Dual-RTX-Pro-6000](https://huggingface.co/satgeze/DeepSeek-v4.1-Flash-EXL3-2.0bpw-Ablit-EngramQ4-SM120-Dual-RTX-Pro-6000)
 
-## What is in this checkpoint
+Code, serve scripts, and patches - the "Repo map" below is that GitHub repo,
+not the HF file list (the HF repo hosts only the weights, charts, docs, and
+two `serve/` reference files):
+[satindergrewal/DeepSeek-v4.1-Flash-EXL3-2.0bpw-Ablit-EngramQ4-SM120-Dual-RTX-Pro-6000](https://github.com/satindergrewal/DeepSeek-v4.1-Flash-EXL3-2.0bpw-Ablit-EngramQ4-SM120-Dual-RTX-Pro-6000)
 
-| | |
-|---|---|
-| Base quant | EXL3 2.0bpw by [diffbot](https://huggingface.co/diffbot/DeepSeek-V4.1-Flash-EXL3-2.0bpw-2x-RTX-PRO-6000) - this checkpoint is a derivative of that quant |
-| Abliteration | 52 grafted `attn.wo_b` tensors, layers 10-35; experts, Engram, MTP, and layers 0-9/36-39 remain stock |
-| Engram | layers 1 and 14 tables, fp8 -> MXINT-4 codes + e4m3 per-32 scales (shards 47-48) |
-| Spec decode | native DSpark (`dspark_block_size=5`), draft experts included - no separate drafter |
-| Runtime | vLLM `0.1.dev20904+g179dd0fa9` + `vllm_exl3` plugin, `tokenizer_mode=deepseek_v41`, ExLlamaV3 kernel path |
-
-## Serving requirements (non-obvious, all measured)
-
-1. `NCCL_P2P_DISABLE=1` - P2P-enabled NCCL init deadlocks on asymmetric Blackwell
-   pairs (Workstation + Max-Q). Both workers spin in `ncclCommInitRank` forever.
-2. `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=64` - this vLLM line defaults to 0, which
-   silently discards draft-SWA hash commits under speculative decoding: the second
-   identical prompt re-prefills from zero. 64 (= block size) restores it
-   (5.9 s -> 0.5 s warm turn). Full root cause in the repo.
-3. `--tool-call-parser deepseek_v41 --enable-auto-tool-choice --tokenizer-mode deepseek_v41`
-   for tool calling; FlashInfer sm_120 patches for vision at topk 1152 (in the repo).
-4. After boot, fire one small request before real work: the first heavy batched
-   request runs at a tenth of speed once (JIT/Engram path warmup).
-
-## Measured (2026-09-16/17, 2x RTX PRO 6000, TP2)
-
-| Metric | Value |
-|---|---|
-| Decode, single stream, 2K ctx | 89.4 tok/s (92-94 stock, non-ablit) |
-| Prefill, 46K ctx | 1622-1840 tok/s |
-| Aggregate decode, 8 streams @46K warm | 244-249 tok/s (stock pack; superseded by decode-window protocol, see quality section) |
-| Warm-turn prefill, 12.7K prefix | 0.53-0.67 s (8-11x vs cold) |
-| Context | 1,048,576 |
-| Loop battery v1 (greedy, temp 0) | 0/8 loops |
-| Math sanity | 17x23=391; GSM8K-style word problems correct with clean reasoning |
-| Vision | red/blue split + two-image identification correct |
-| Tool calling | OpenAI-format roundtrip verified, streaming and non-streaming |
-
-## Abliteration notes
-
-Graft method: attention `wo_b` output projection, layers 10-35, 52 tensors,
-verified tensor-for-tensor against stock before release. No other tensors were
-touched - this is a surgical refusal-direction ablation, not a full-network
-retrain. Gates above were run on exactly these weights. Behavior deltas vs stock
-are confined to refusal behavior; decoding speed is within noise (89.4 vs 92-94).
-
-## Rebuilding / verifying
-
-`tools/build_ablit_hybrid.py` (in the repo) re-verifies the graft hashes and
-rebuilds the hybrid pack from a stock 2.0bpw pack + this repo's Engram shards.
-The Engram quantizer (`tools/engram_write.py`) supports MXINT-3 and MXINT-4,
-block 16/32; block-16 MXINT-3 also passes the loop gate (rel_L2 0.232) if you
-need the extra 17 GiB back.
+**Quality gates are complete:** GSM8K-style math clean (225 / 10 with visible
+reasoning), loop battery 0/8 at greedy temp-0, both vision tests correct
+(red|blue split; two-image identification), prefix-cache second-pass 8-11x,
+decode 89-94 tok/s single stream at 2K. Numbers below and in
+[docs/BENCH.md](docs/BENCH.md); quality vs the official API and vs 2.9bpw is in
+the comparison section with charts.
 
 ## Testing status: NOT rigorously tested
 
-**Warning:** hobbyist derivative checkpoint - no full benchmark suite, no safety red-team.
+**Warning:** this is a hobbyist derivative checkpoint. It has NOT been through a full benchmark suite, refusal-behavior literature-standard evaluation, or safety red-teaming. What WAS run, and what was not, is below in full.
 
 ## Abliteration before/after (2026-09-17, same serve stack, back-to-back)
 
@@ -93,6 +54,7 @@ need the extra 17 GiB back.
 | GSM8K, 50-problem test slice | 92.0% (46/50) | **96.0%** (48/50) |
 | Loop battery v1, short context | 0/8 | 0/8 |
 | Loop battery v1, 400K-token prefill | 0/8 | **1/8** (`enum` prompt, ttr 0.20) |
+| Loop battery, 512K-token prefill (2026-09-18) | - | **1/8** (12%) |
 | Decode @2K, single stream | 92-94 tok/s | 89.4 tok/s |
 | Concurrency, 8x46K warm | 244-249 tok/s | 260.2 tok/s (superseded - see caveat) |
 | Concurrency, 12x46K | ~~17.3 tok/s (collapse)~~ | **measurement artifact - retracted, see below** |
@@ -105,32 +67,159 @@ false-positive (0 -> 1) and one repetition-attractor appearance at 400K depth
 (0/8 -> 1/8). No cognitive cost measured: GSM8K 96% >= 92% stock (noise range),
 decode within noise.
 
-**Retracted rows (2026-09-17), disclosed in full:** the "12x46K collapse to
-17.3 tok/s" and the warm-cache concurrency numbers came from a two-phase harness
-that assumed long-context prefix-cache reuse. Server logs show that reuse is
-unreliable on this build (only the most recently prefilled context stays
-matchable), so those "decode" phases silently re-prefilled - the 17.3 tok/s wall
-time was 11x50K tokens at prefill rate, a prefill measurement mislabeled as
-decode. Replacement protocol (streaming decode-window, cache-independent) is in
-the repo; corrected numbers in the quality section below.
-
 Measurement caveats, stated plainly: 50-problem GSM8K slice (not the full 1319);
 20-prompt refusal battery of archetype phrasings (not the Keys refusal32 set);
 refusal classified by marker heuristic on the visible reply; loop-prefill uses a
 repeated wikitext test split (732 KiB cycled to 400K), not unique prose.
 
+**Retracted / superseded rows (2026-09-17), disclosed in full:** the "12x46K
+collapse to 17.3 tok/s" and the warm-cache concurrency numbers were produced by a
+two-phase harness that depended on cross-request prefix-cache reuse. Server logs
+showed that reuse is unreliable on this build at long context (only the most
+recently prefilled context stays matchable; a phase-B "warm decode" silently
+re-prefilled 11 of 12 contexts, and the 17.3 tok/s wall time was exactly 11x50K
+tokens at the box's prefill rate - a prefill measurement, not a decode one). A
+separate defect (orphaned 218K-token requests kept re-prefilling after client
+disconnection, stalling unrelated 2K requests for 47-115s) contaminated sessions
+after any killed client. Both numbers above are therefore invalid as decode
+numbers. The replacement protocol measures co-resident decode directly
+(streaming, first-token to last-token window, no prefix-cache dependency);
+corrected numbers are in the quality/throughput section and docs/BENCH.md.
+
 Still not tested: full GSM8K, MMLU/HumanEval, 1M-token recall, real-photo vision,
 multi-turn agentic soak, any safety red-team.
 
+## What this checkpoint is
+
+| | |
+|---|---|
+| Base quant | EXL3 2.0bpw by [diffbot](https://huggingface.co/diffbot/DeepSeek-V4.1-Flash-EXL3-2.0bpw-2x-RTX-PRO-6000) - this checkpoint is a derivative of that quant (graft + Engram recompression on top) |
+| Abliteration | 52 grafted `attn.wo_b` tensors, layers 10-35 (graft method; experts, Engram, MTP, layers 0-9 and 36-39 remain stock) |
+| Engram tables | recompressed fp8 -> MXINT-4 with e4m3 block scales: 189.1 GiB -> 97.6 GiB. Served from NVMe with dedup + page-cache warm, or pinned on boxes that can afford it |
+| Hybrid builder | `tools/build_ablit_hybrid.py` verifies the graft against stock, then hardlinks ablit weight shards + MXINT-4 Engram shards into one pack |
+| Runtime | vLLM `0.1.dev20904+g179dd0fa9` + `vllm_exl3` plugin, `tokenizer_mode=deepseek_v41`, DSpark `dspark_block_size=5` |
+
+## Quick start
+
+```bash
+git clone https://github.com/satindergrewal/DeepSeek-v4.1-Flash-EXL3-2.0bpw-Ablit-EngramQ4-SM120-Dual-RTX-Pro-6000.git
+cd DeepSeek-v4.1-Flash-EXL3-2.0bpw-Ablit-EngramQ4-SM120-Dual-RTX-Pro-6000
+cp serve/serve.env.example serve/serve.env   # then set API_KEY and PACK (this checkpoint's download path) in it
+./start.sh                                   # boots on :8000, waits for ready
+```
+
+`start.sh` sources `serve/serve.env` with `set -a`; the serve script requires
+`API_KEY` and authenticates every request against that Bearer token (there is
+no keyless mode). One more knob on a fresh clone: the scripts default to a
+custom `xmoe` MoE kernel (`kernels/build.sh`, not part of this repo) - build
+it, or run `XMOE_EXT= ./start.sh` to fall back to the stock ExLlamaV3 MoE
+kernel. The two RCA fixes (`VLLM_PREFIX_CACHE_RETENTION_INTERVAL=64`,
+`NCCL_P2P_DISABLE=1`) are already wired by `start.sh` and the example env.
+
+Boot is 12-15 min from cold page cache (48 shards + JIT + graph capture); 5-6 min with a warm page cache (measured 2026-09-18).
+After every boot, fire one small request before loading real work: the first
+heavy batched request runs at a tenth of speed once (JIT/Engram path warmup).
+
+## What runs (the stack, layer by layer)
+
+| Layer | What | Where |
+|---|---|---|
+| API | OpenAI-compatible, tool calling (deepseek_v41 parser), vision | serve/serve-engram-vision.sh |
+| Model | DeepSeek v4.1 Flash, CED arch, Engram at layers 1 and 14, native DSpark | checkpoint config.json |
+| Weights | EXL3 2.0bpw + abliteration graft (see above) | checkpoint |
+| Engram | MXINT-4 NVMe reader with n-gram dedup + eager graph break | patches/vllm/engram_disk_q.py, engram_graphbreak.py |
+| KV cache | fp8 MLA, 8 GiB pool (~4.4M tokens) | serve script |
+| Spec decode | DSpark, 5 draft tokens, probabilistic sampling | serve script |
+| Parallelism | TP2 over PCIe, custom all-reduce disabled | serve script |
+| Context | 1,048,576 max | MAX_MODEL_LEN |
+| Caching | prefix caching with `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=64` - see RCA below | serve script |
+
+## The two root causes (why your serve is slow or hangs)
+
+**1. DSpark silently disables prefix caching.** This vLLM line defaults
+`prefix_cache_retention_interval=0`. At 0, the sliding-window manager commits only the
+newest boundary block per prefill; every decode-generated draft-SWA block is never
+hash-committed, so the second identical prompt re-prefills from zero. The failure is
+a one-request lag, not zero caching - which is exactly why every 2-pass measurement
+"proves" caching is broken and every 3rd request suddenly hits. Fix:
+`VLLM_PREFIX_CACHE_RETENTION_INTERVAL=64` (= block size; the contiguous-hit walk
+needs every block committed, any sparser value collapses back to zero). Receipt:
+PASS1 5.85s -> PASS2 0.53s, walk `match=True` on the second lookup.
+
+**2. NCCL P2P init deadlocks on asymmetric GPU pairs.** Workstation + Max-Q
+Blackwell pair, P2P enabled: both workers spin forever inside `ncclCommInitRank`
+(100% CPU, 964 MiB VRAM, zero IO, log silence after the pynccl line). 2/2
+reproductions; py-spy stacks in docs/ROOT-CAUSES.md. Fix: `NCCL_P2P_DISABLE=1`
+on every boot of every script.
+
+**Known wall:** 125 GiB boxes cannot pin the Engram tables for the ~110 tok/s
+pinned rung - the load-time peak (pin + weight streaming) wedges the host even at
+81 GiB pinned with 32 GiB modeled headroom. Full post-mortem in docs/ROOT-CAUSES.md.
+
+## Results (2026-09-16/17; stock-pack rows marked)
+
+Policy: if a number is not in a dated table, treat it as unverified. The
+concurrency row was measured on the stock pack - the abliterated weights were
+gated on everything in the testing section above, not the full matrix.
+
+| Metric | Value | Verified |
+|---|---|---|
+| Decode, single stream, 2K ctx | 92-94 tok/s stock, 89.4 tok/s abliterated | bench, non-stream |
+| Prefill, 46K ctx | 1622-1840 tok/s | bench TTFT |
+| Concurrency, decode-window (co-resident streaming, 2026-09-18) | 8x46K: 16.6 agg (2.1/stream) - 12x46K: 15.8 - 16x46K: 15.5 - 8x100K: 7.7 - 8x200K: 3.9 tok/s; TTFT p50 130-588s | decode-window bench; prefill-queuing dominated - see docs/BENCH.md |
+| Warm-turn prefill, 12.7K prefix | 5.85 s -> 0.53-0.67 s (8-11x) | identical-prompt gate |
+| Vision | red/blue split + two-image identification correct | image tests |
+| Loop battery v1 (greedy, temp 0, 1500 tokens) | 0/8 loops | loop_rate.py |
+| Tool calling | OpenAI format roundtrip verified (streaming + not) | live serve |
+| Context | 1,048,576 max | serving |
+| Boot to ready | 12-15 min cold | boot log |
+| Checkpoint | 46 abliterated-weight shards + 6 MXINT-4 Engram part-shards (the two big Engram shards are split for HF's 50 GB file cap; `model.safetensors.index.json` maps tensors, loaders need no special handling) | pack receipt | pack receipt |
+
+Former "open defect" (12-16 concurrent agents at 46K collapsing to ~20 tok/s):
+retracted 2026-09-17 as a measurement artifact - the harness's warm phase
+re-prefilled instead of decoding (see the retraction note above). The remaining
+real finding from that investigation: clients that disconnect mid-prefill leave
+requests running server-side, and those orphans degrade later requests until the
+serve restarts. If you kill a client during a long prefill, watch for this; a
+serve restart clears it.
+
+## Repo map
+
+All paths below are in the GitHub repo linked at the top. The serve scripts
+mount `patches/` over the vLLM/FlashInfer trees inside their container, so a
+clone plus the checkpoint download is self-contained.
+
+| Path | What |
+|---|---|
+| serve/serve-engram-vision.sh | the launcher (vision + DSpark + Engram NVMe + caching fix) |
+| serve/serve-engram-q4-pinned.sh | pinned-RAM variant for boxes that can hold the tables (text-only, ~97 GiB pinned host RAM; 125 GiB boxes - see the known wall below) |
+| patches/vllm/ | instrumented KV coordinator + sliding-window manager, Engram NVMe reader, graph-break wiring, MXINT-4/MXINT-3 Triton lookup |
+| patches/flashinfer/ | sm_120 sparse-MLA prefill/decode topk-1152 patches (vision raises text prefill topk) |
+| bench/ | bench matrix, acceptance, concurrency ladder, loop battery |
+| tools/ | Engram quant writer (MXINT-3/4, block 16/32), page-cache warmer, pin guard, ablit hybrid builder |
+| docs/ | root-cause chain + full bench receipts |
+
+Credits: FlashInfer patches build on the upstream sparse_mla_sm120 kernels
+(JIT topk-1152 extension); vLLM patches are annotated edits of
+`0.1.dev20904+g179dd0fa9`. The abliteration graft was produced by the wo_b
+sidecar method - run `tools/build_ablit_hybrid.py` to verify any pack against it.
+
 ## Sources and credits
 
-- Base model: [deepseek-ai/DeepSeek-V4.1-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash)
-- **EXL3 2.0bpw quantization: [diffbot/DeepSeek-V4.1-Flash-EXL3-2.0bpw-2x-RTX-PRO-6000](https://huggingface.co/diffbot/DeepSeek-V4.1-Flash-EXL3-2.0bpw-2x-RTX-PRO-6000)** - all weight shards are diffbot's quant; this repo adds the ablit graft and the MXINT-4 Engram recompression
-- 2.9bpw reference quant used for KLD cross-checks: [MiaAI-Lab/DeepSeek-v4.1-Flash-EXL3-2x-DGX-Sparks](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-EXL3-2x-DGX-Sparks)
-- Abliteration method: **drowzeys' Keys anchored-tensors wo_b graft** (rank-1, layers 10-35, lambda=3.5) - sidecar from [drowzeys' abliteration packs](https://huggingface.co/drowzeys), applied to the 2.0bpw quant
-- Runtime: vLLM + vllm_exl3 plugin + ExLlamaV3 kernels; FlashInfer sm_120 kernels under the vision patches
+This checkpoint exists on top of other people's work, in order:
 
-License inherits the DeepSeek V4.1 model license.
+| Source | What we took |
+|---|---|
+| [deepseek-ai/DeepSeek-V4.1-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash) | the base model, architecture, tokenizer, DSpark draft |
+| [diffbot/DeepSeek-V4.1-Flash-EXL3-2.0bpw-2x-RTX-PRO-6000](https://huggingface.co/diffbot/DeepSeek-V4.1-Flash-EXL3-2.0bpw-2x-RTX-PRO-6000) | **the EXL3 2.0bpw quantization itself** - all 46 weight shards are diffbot's; we grafted the ablit tensors and recompressed the Engram tables on top. Without this quant there is no release |
+| [MiaAI-Lab/DeepSeek-v4.1-Flash-EXL3-2x-DGX-Sparks](https://github.com/MiaAI-Lab/DeepSeek-v4.1-Flash-EXL3-2x-DGX-Sparks) | the 2.9bpw DGX Sparks quant, used as the reference for KLD cross-checks (kld-2.0-vs-2.9.json in the pack), and the release format |
+| Abliteration | **drowzeys' Keys anchored-tensors method** - rank-1 `attn.wo_b` projection (lambda=3.5, layers 10-35), sidecar recaptured on TR3 and applied here to the 2.0bpw quant. See [drowzeys' packs](https://huggingface.co/drowzeys) for the method family |
+| vLLM `0.1.dev20904+g179dd0fa9` + the `vllm_exl3` plugin + ExLlamaV3 kernels | the runtime this whole stack serves through |
+| [FlashInfer](https://github.com/flashinfer-ai/flashinfer) sm_120 sparse-MLA kernels | the prefill/decode paths our topk-1152 patches extend |
+| DeepSeek `deepseek_v41` tokenizer and tool parser | chat template, reasoning split, DSML tool-call grammar |
+
+License: inherits the DeepSeek V4.1 model license. Quantizations and derivative
+checkpoints - check the source repos' terms before redistribution.
 
 ## Quality vs the official DeepSeek API and vs 2.9bpw
 
@@ -157,12 +246,16 @@ disabled for the trajectory capture.
 |---|---|---|---|---|---|---|---|
 | Official DeepSeek API | 98.0 | 20/20 | 1/10 | 3/3 | reference | reference | reference |
 | Mia EXL3 2.9bpw | 96.0 | 20/20 | 1/10 | 3/3 | 0.1238 | 1.132 | 0.984 |
-| **This 2.0bpw (abliterated)** | 96.0 | 2/20 | 1/10 | 2/3 | - | - | - |
+| **This 2.0bpw (abliterated)** | 96.0 | 2/20 | 1/10 | 2/3 | **0.0640** | **1.066** | **0.985** |
 | This 2.0bpw (stock, earlier session) | 92.0 | 20/20 | 0/10 | - | 0.4389 | 3.275 | 0.771 |
 
 The stock 2.0bpw KL/PPL row is from an earlier session (replay harness,
 165K tokens); it is the quantization-only reference point. The abliterated
-row is measured on the exact shipped weights.
+row is measured on the exact shipped weights - divergence re-measured
+2026-09-18 on the relaunched serve (n=3,957 trajectory positions, one
+junction skipped): **KL 0.0640 nats/tok, PPL 1.066, top-1 agreement 0.985 -
+the abliterated 2.0bpw checkpoint is the closest-to-official arm measured,
+ahead of the 2.9bpw reference**.
 
 ![gsm8k](charts/gsm8k.png)
 

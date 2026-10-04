@@ -11,6 +11,11 @@ P2P-enabled NCCL init deadlocks on asymmetric Blackwell pairs (disable it).
 Checkpoint on Hugging Face:
 [satgeze/DeepSeek-v4.1-Flash-EXL3-2.0bpw-Ablit-EngramQ4-SM120-Dual-RTX-Pro-6000](https://huggingface.co/satgeze/DeepSeek-v4.1-Flash-EXL3-2.0bpw-Ablit-EngramQ4-SM120-Dual-RTX-Pro-6000)
 
+Code, serve scripts, and patches - the "Repo map" below is that GitHub repo,
+not the HF file list (the HF repo hosts only the weights, charts, docs, and
+two `serve/` reference files):
+[satindergrewal/DeepSeek-v4.1-Flash-EXL3-2.0bpw-Ablit-EngramQ4-SM120-Dual-RTX-Pro-6000](https://github.com/satindergrewal/DeepSeek-v4.1-Flash-EXL3-2.0bpw-Ablit-EngramQ4-SM120-Dual-RTX-Pro-6000)
+
 **Quality gates are complete:** GSM8K-style math clean (225 / 10 with visible
 reasoning), loop battery 0/8 at greedy temp-0, both vision tests correct
 (red|blue split; two-image identification), prefix-cache second-pass 8-11x,
@@ -79,11 +84,19 @@ multi-turn agentic soak, any safety red-team.
 ## Quick start
 
 ```bash
+git clone https://github.com/satindergrewal/DeepSeek-v4.1-Flash-EXL3-2.0bpw-Ablit-EngramQ4-SM120-Dual-RTX-Pro-6000.git
+cd DeepSeek-v4.1-Flash-EXL3-2.0bpw-Ablit-EngramQ4-SM120-Dual-RTX-Pro-6000
+cp serve/serve.env.example serve/serve.env   # then set API_KEY and PACK (this checkpoint's download path) in it
 ./start.sh                                   # boots on :8000, waits for ready
 ```
 
-Serves WITHOUT an API key by default. To require a Bearer token, set `API_KEY`
-in the environment or `serve/serve.env` (see `serve/serve.env.example`).
+`start.sh` sources `serve/serve.env` with `set -a`; the serve script requires
+`API_KEY` and authenticates every request against that Bearer token (there is
+no keyless mode). One more knob on a fresh clone: the scripts default to a
+custom `xmoe` MoE kernel (`kernels/build.sh`, not part of this repo) - build
+it, or run `XMOE_EXT= ./start.sh` to fall back to the stock ExLlamaV3 MoE
+kernel. The two RCA fixes (`VLLM_PREFIX_CACHE_RETENTION_INTERVAL=64`,
+`NCCL_P2P_DISABLE=1`) are already wired by `start.sh` and the example env.
 
 Boot is 12-15 min from cold page cache (48 shards + JIT + graph capture); 5-6 min with a warm page cache (measured 2026-09-18).
 After every boot, fire one small request before loading real work: the first
@@ -154,10 +167,14 @@ serve restart clears it.
 
 ## Repo map
 
+All paths below are in the GitHub repo linked at the top. The serve scripts
+mount `patches/` over the vLLM/FlashInfer trees inside their container, so a
+clone plus the checkpoint download is self-contained.
+
 | Path | What |
 |---|---|
 | serve/serve-engram-vision.sh | the launcher (vision + DSpark + Engram NVMe + caching fix) |
-| serve/serve-engram-q4-pinned.sh | pinned-RAM variant for boxes that can hold the tables |
+| serve/serve-engram-q4-pinned.sh | pinned-RAM variant for boxes that can hold the tables (text-only, ~97 GiB pinned host RAM; 125 GiB boxes - see the known wall below) |
 | patches/vllm/ | instrumented KV coordinator + sliding-window manager, Engram NVMe reader, graph-break wiring, MXINT-4/MXINT-3 Triton lookup |
 | patches/flashinfer/ | sm_120 sparse-MLA prefill/decode topk-1152 patches (vision raises text prefill topk) |
 | bench/ | bench matrix, acceptance, concurrency ladder, loop battery |
